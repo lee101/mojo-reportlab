@@ -3,7 +3,6 @@
 from std.sys.info import simd_width_of
 
 comptime FPtr = UnsafePointer[Float64, AnyOrigin[mut=True]]
-comptime IPtr = UnsafePointer[Int64, AnyOrigin[mut=True]]
 comptime BPtr = UnsafePointer[UInt8, AnyOrigin[mut=True]]
 comptime U32Ptr = UnsafePointer[UInt32, AnyOrigin[mut=True]]
 
@@ -225,7 +224,7 @@ def mrl_encode_path(
     dst_addr: Int,
     separator: Int,
 ) abi("C") -> Int:
-    var ops = IPtr(unsafe_from_address=ops_addr)
+    var ops = BPtr(unsafe_from_address=ops_addr)
     var values = FPtr(unsafe_from_address=values_addr)
     var dst = BPtr(unsafe_from_address=dst_addr)
     if op_count == 0:
@@ -234,7 +233,7 @@ def mrl_encode_path(
     var vi = 0
     for i in range(op_count):
         p = put_byte(dst, p, separator)
-        var op = ops[i]
+        var op = Int64(ops[i])
         var arity = operator_arity(op)
         for j in range(arity):
             if j:

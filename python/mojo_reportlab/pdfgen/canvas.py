@@ -5,14 +5,13 @@ from __future__ import annotations
 import numpy as np
 from reportlab import rl_config
 from reportlab.pdfbase import pdfdoc
-from reportlab.pdfbase.pdfutils import _wrap
 from reportlab.pdfgen.canvas import (
     FILL_EVEN_ODD,
     PATH_OPS,
     Canvas as _ReportLabCanvas,
 )
 
-from mojo_reportlab._lib import ascii85_encode, encode_lines, encode_path
+from mojo_reportlab._lib import ascii85_encode_bytes, encode_lines, encode_path
 from mojo_reportlab.pdfgen.pathobject import PDFPathObject
 
 
@@ -30,8 +29,13 @@ class _MojoBase85Encode:
     def encode(self, text):
         if isinstance(text, str):
             text = text.encode("latin1")
-        result = ascii85_encode(text)
-        return _wrap(result) if rl_config.wrapA85 else result
+        result = ascii85_encode_bytes(text)
+        if not rl_config.wrapA85:
+            return result
+        chunks = [result[i : i + 60] for i in range(0, len(result), 60)]
+        if len(chunks[-1]) == 1:
+            chunks[-2:] = [chunks[-2][:-1], chunks[-2][-1:] + chunks[-1]]
+        return b"\r\n".join(chunks)
 
     def decode(self, text):
         return pdfdoc.asciiBase85Decode(text)

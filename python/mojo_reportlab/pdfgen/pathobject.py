@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from array import array
+
 import numpy as np
 from reportlab.pdfgen import pdfgeom
 from reportlab.pdfgen.pathobject import PDFPathObject as _UpstreamPath
 
-from mojo_reportlab._lib import encode_path
+from mojo_reportlab._lib import _encode_path_arrays
 
 
 class PDFPathObject:
@@ -14,49 +16,56 @@ class PDFPathObject:
 
     def __init__(self, code=None):
         self._delegate = _UpstreamPath(code=code) if code is not None else None
-        self._ops: list[int] = []
-        self._values: list[float] = []
+        self._ops = bytearray()
+        self._values = array("d")
         self._cache: str | None = None
-
-    def _append(self, op: int, values=()):
-        if self._delegate is not None:
-            raise RuntimeError("internal append used for a delegated path")
-        if not self._ops:
-            assert op in (1, 4), "path must start with a moveto or rect"
-        self._ops.append(op)
-        self._values.extend(values)
-        self._cache = None
 
     def getCode(self):
         if self._delegate is not None:
             return self._delegate.getCode()
         if self._cache is None:
-            ops = np.ascontiguousarray(self._ops, dtype=np.int64)
-            values = np.ascontiguousarray(self._values, dtype=np.float64)
-            self._cache = encode_path(ops, values)
+            ops = np.frombuffer(self._ops, dtype=np.uint8)
+            values = np.frombuffer(self._values, dtype=np.float64)
+            self._cache = _encode_path_arrays(ops, values)
         return self._cache
 
     def _get_canvas_code(self):
         if self._delegate is not None:
             return self._delegate.getCode()
-        ops = np.ascontiguousarray(self._ops, dtype=np.int64)
-        values = np.ascontiguousarray(self._values, dtype=np.float64)
-        return encode_path(ops, values, "\n")
+        ops = np.frombuffer(self._ops, dtype=np.uint8)
+        values = np.frombuffer(self._values, dtype=np.float64)
+        return _encode_path_arrays(ops, values, "\n")
 
     def moveTo(self, x, y):
         if self._delegate is not None:
             return self._delegate.moveTo(x, y)
-        self._append(1, (x, y))
+        self._ops.append(1)
+        self._values.append(x)
+        self._values.append(y)
+        self._cache = None
 
     def lineTo(self, x, y):
         if self._delegate is not None:
             return self._delegate.lineTo(x, y)
-        self._append(2, (x, y))
+        assert self._ops, "path must start with a moveto or rect"
+        self._ops.append(2)
+        self._values.append(x)
+        self._values.append(y)
+        self._cache = None
 
     def curveTo(self, x1, y1, x2, y2, x3, y3):
         if self._delegate is not None:
             return self._delegate.curveTo(x1, y1, x2, y2, x3, y3)
-        self._append(3, (x1, y1, x2, y2, x3, y3))
+        assert self._ops, "path must start with a moveto or rect"
+        self._ops.append(3)
+        append = self._values.append
+        append(x1)
+        append(y1)
+        append(x2)
+        append(y2)
+        append(x3)
+        append(y3)
+        self._cache = None
 
     def arc(self, x1, y1, x2, y2, startAng=0, extent=90):
         self._curves(pdfgeom.bezierArc(x1, y1, x2, y2, startAng, extent))
@@ -69,7 +78,13 @@ class PDFPathObject:
     def rect(self, x, y, width, height):
         if self._delegate is not None:
             return self._delegate.rect(x, y, width, height)
-        self._append(4, (x, y, width, height))
+        self._ops.append(4)
+        append = self._values.append
+        append(x)
+        append(y)
+        append(width)
+        append(height)
+        self._cache = None
 
     def ellipse(self, x, y, width, height):
         self._curves(pdfgeom.bezierArc(x, y, x + width, y + height, 0, 360))
@@ -123,7 +138,9 @@ class PDFPathObject:
     def close(self):
         if self._delegate is not None:
             return self._delegate.close()
-        self._append(5)
+        assert self._ops, "path must start with a moveto or rect"
+        self._ops.append(5)
+        self._cache = None
 
 
 __all__ = ["PDFPathObject"]

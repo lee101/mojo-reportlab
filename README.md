@@ -92,14 +92,16 @@ both implementations returned identical bytes or text before printing.
 
 | case | mojo-reportlab | ReportLab | speedup |
 |---|---:|---:|---:|
-| fp_str (1M numbers) | 127.70 ms | 963.99 ms | 7.55x |
-| Canvas.lines (200k) | 142.99 ms | 1113.44 ms | 7.79x |
-| PDFPathObject (100k points) | 96.84 ms | 296.87 ms | 3.07x |
-| compressed PDF page (200k lines) | 1283.07 ms | 3594.38 ms | 2.80x |
+| fp_str (1M numbers) | 120.55 ms | 933.99 ms | 7.75x |
+| Canvas.lines (200k) | 135.41 ms | 1073.57 ms | 7.93x |
+| PDFPathObject (100k points) | 74.75 ms | 297.06 ms | 3.97x |
+| compressed PDF page (200k lines) | 1069.76 ms | 3448.73 ms | 3.22x |
 
 The compressed-page result includes ReportLab's unchanged document assembly
 and zlib work. Its ASCII85 stage uses native-width SIMD for independent
-four-byte groups and four CPU workers above a 1 MiB threshold.
+four-byte groups with a scalar remainder. It stays serial because profiling
+shows native zlib dominates this workload and the remaining independent stage
+is too small to repay thread-launch overhead.
 
 No GPU path is included. The covered work is variable-length byte
 serialization with low floating-point arithmetic intensity, while compression
@@ -119,9 +121,10 @@ formatter.
 
 One Mojo compilation unit writes ASCII numbers, PDF operators, and compressed
 stream ASCII85 directly into pre-sized `uint8` buffers. Bulk `Canvas.lines`
-data is encoded in one FFI call. `PDFPathObject` defers numeric formatting
-until `getCode`, then sends its operator and coordinate arrays through one
-call. ASCII85 reads zlib's immutable Python buffer zero-copy across the FFI
-boundary and only allocates its final output buffer. The shared library is
+data is encoded in one FFI call. `PDFPathObject` accumulates operators and
+coordinates in dense buffer-backed containers, then exposes zero-copy NumPy
+views to one Mojo call at `getCode`. ASCII85 reads zlib's immutable Python
+buffer zero-copy across the FFI boundary and returns its final bytes directly
+to ReportLab, avoiding a decode/re-encode round trip. The shared library is
 built by `build/build.sh` as `dist/libmojo-reportlab.so` and loaded with
 `ctypes`.

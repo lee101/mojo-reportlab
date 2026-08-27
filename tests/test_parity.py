@@ -7,8 +7,10 @@ from io import BytesIO
 
 import numpy as np
 import pytest
+from reportlab import rl_config
 from reportlab.lib.rl_accel import fp_str as upstream_fp_str
 from reportlab.lib.rl_accel import asciiBase85Encode as upstream_ascii85_encode
+from reportlab.pdfbase import pdfdoc
 from reportlab.pdfgen.canvas import Canvas as UpstreamCanvas
 from reportlab.pdfgen.pathobject import PDFPathObject as UpstreamPath
 
@@ -16,11 +18,12 @@ from mojo_reportlab.lib.rl_accel import fp_str
 from mojo_reportlab._lib import (
     _checked_size,
     ascii85_encode,
+    ascii85_encode_bytes,
     encode_lines,
     encode_numbers,
     encode_path,
 )
-from mojo_reportlab.pdfgen.canvas import Canvas
+from mojo_reportlab.pdfgen.canvas import Canvas, _MojoBase85Encode
 from mojo_reportlab.pdfgen.pathobject import PDFPathObject
 
 
@@ -77,10 +80,21 @@ def test_ascii85_accepts_owned_and_borrowed_buffers():
     assert ascii85_encode(memoryview(source)[1::2]) == upstream_ascii85_encode(
         bytes(source[1::2])
     )
+    assert ascii85_encode_bytes(source) == upstream_ascii85_encode(
+        bytes(source)
+    ).encode("ascii")
+
+
+def test_ascii85_bytes_wrapping(monkeypatch):
+    source = bytes(range(200))
+    monkeypatch.setattr(rl_config, "wrapA85", 1)
+    assert _MojoBase85Encode().encode(source) == pdfdoc.PDFBase85Encode.encode(
+        source
+    ).encode("ascii")
 
 
 @pytest.mark.parametrize("size", [1_048_575, 1_048_579])
-def test_ascii85_parallel_threshold(size):
+def test_ascii85_large_input_simd_tails(size):
     values = np.random.default_rng(91).integers(
         0, 256, size=size, dtype=np.uint8
     )
@@ -100,6 +114,16 @@ def build_path(path_class):
 
 def test_path_basic_commands_exact_parity():
     assert build_path(PDFPathObject).getCode() == build_path(UpstreamPath).getCode()
+
+
+def test_path_cache_is_invalidated_after_append():
+    ours, theirs = PDFPathObject(), UpstreamPath()
+    ours.moveTo(1, 2)
+    theirs.moveTo(1, 2)
+    assert ours.getCode() == theirs.getCode()
+    ours.lineTo(3, 4)
+    theirs.lineTo(3, 4)
+    assert ours.getCode() == theirs.getCode()
 
 
 def test_path_binding_normalizes_arrays_and_rejects_invalid_layout():

@@ -113,24 +113,13 @@ def encode_lines(coords: np.ndarray) -> str:
     return destination[:size].tobytes().decode("ascii")
 
 
-def encode_path(ops: np.ndarray, values: np.ndarray, separator: str = " ") -> str:
-    ops = np.ascontiguousarray(ops, dtype=np.int64).reshape(-1)
-    values = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
+def _encode_path_arrays(
+    ops: np.ndarray, values: np.ndarray, separator: str = " "
+) -> str:
     if len(separator) != 1 or not separator.isascii():
         raise ValueError("separator must be one ASCII character")
     if not ops.size:
-        if values.size:
-            raise ValueError("path values were supplied without operators")
         return ""
-    arities = {1: 2, 2: 2, 3: 6, 4: 4, 5: 0}
-    try:
-        expected_values = sum(arities[int(op)] for op in ops)
-    except KeyError as error:
-        raise ValueError(f"unsupported path operator {error.args[0]}") from None
-    if values.size != expected_values:
-        raise ValueError(
-            f"path operators require {expected_values} values, got {values.size}"
-        )
     if not _fast_path_safe(values):
         operators = {
             1: ("m", 2),
@@ -158,11 +147,30 @@ def encode_path(ops: np.ndarray, values: np.ndarray, separator: str = " ") -> st
     return destination[:size].tobytes().decode("ascii")
 
 
-def ascii85_encode(source: bytes) -> str:
+def encode_path(ops: np.ndarray, values: np.ndarray, separator: str = " ") -> str:
+    ops = np.ascontiguousarray(ops, dtype=np.int64).reshape(-1)
+    values = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
+    if not ops.size:
+        if values.size:
+            raise ValueError("path values were supplied without operators")
+        return _encode_path_arrays(ops.astype(np.uint8), values, separator)
+    invalid = ops[(ops < 1) | (ops > 5)]
+    if invalid.size:
+        raise ValueError(f"unsupported path operator {int(invalid[0])}")
+    arities = np.array([0, 2, 2, 6, 4, 0], dtype=np.int64)
+    expected_values = int(arities[ops].sum())
+    if values.size != expected_values:
+        raise ValueError(
+            f"path operators require {expected_values} values, got {values.size}"
+        )
+    return _encode_path_arrays(ops.astype(np.uint8), values, separator)
+
+
+def ascii85_encode_bytes(source: bytes) -> bytes:
     if not isinstance(source, bytes):
         source = bytes(source)
     if not source:
-        return "~>"
+        return b"~>"
     values = np.frombuffer(source, dtype=np.uint8)
     destination = np.empty(((values.size + 3) // 4) * 5 + 2, dtype=np.uint8)
     size = _checked_size(
@@ -170,4 +178,8 @@ def ascii85_encode(source: bytes) -> str:
         destination.size,
         "mrl_ascii85_encode",
     )
-    return destination[:size].tobytes().decode("ascii")
+    return destination[:size].tobytes()
+
+
+def ascii85_encode(source: bytes) -> str:
+    return ascii85_encode_bytes(source).decode("ascii")
