@@ -1,6 +1,5 @@
 """PDF numeric and path-command serialization kernels."""
 
-from std.algorithm import parallelize
 from std.sys.info import simd_width_of
 
 comptime FPtr = UnsafePointer[Float64, AnyOrigin[mut=True]]
@@ -258,20 +257,7 @@ def mrl_ascii85_encode(
     var words = U32Ptr(unsafe_from_address=src_addr)
     var dst = BPtr(unsafe_from_address=dst_addr)
     var groups = count // 4
-    comptime CHUNK_GROUPS = 16_384
-    comptime PARALLEL_MIN_BYTES = 1_048_576
-    if count >= PARALLEL_MIN_BYTES:
-        var chunks = (groups + CHUNK_GROUPS - 1) // CHUNK_GROUPS
-
-        @parameter
-        def encode_chunk(chunk: Int):
-            var begin = chunk * CHUNK_GROUPS
-            var end = min(begin + CHUNK_GROUPS, groups)
-            encode_ascii85_range(words, src, dst, begin, end)
-
-        parallelize[encode_chunk](chunks, 4)
-    else:
-        encode_ascii85_range(words, src, dst, 0, groups)
+    encode_ascii85_range(words, src, dst, 0, groups)
 
     var first_zero = groups
     for group in range(groups):
