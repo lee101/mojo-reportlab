@@ -148,7 +148,7 @@ def encode_ascii85_range(
     var i = begin
     var vector_end = end - (end - begin) % W
     while i < vector_end:
-        var raw = words.load[width=W, alignment=1](i)
+        var raw = words.unsafe_load[width=W, alignment=1](i)
         var values = (
             ((raw & UInt32(0x000000FF)) << UInt32(24))
             | ((raw & UInt32(0x0000FF00)) << UInt32(8))
